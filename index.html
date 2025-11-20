@@ -5,7 +5,6 @@
 <title>Entradas – Almacén Zapata</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<!-- Firebase -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import {
@@ -13,14 +12,12 @@ import {
   addDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-////////////////////////////////////////////////////
-// CONFIG FIREBASE
-////////////////////////////////////////////////////
 const firebaseConfig = {
   apiKey: "AIzaSyCK5nb6u2CGRJ8AB1aPlRn54b97bdeAFeM",
- authDomain: "inventariopv-643f1.firebaseapp.com",
+  authDomain: "inventariopv-643f1.firebaseapp.com",
   projectId: "inventariopv-643f1",
 };
+
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
@@ -32,29 +29,46 @@ const btnGuardar = document.getElementById("guardarEntrada");
 let productosCache = [];
 let tabla = [];
 
+async function init() {
+  await cargarProductos();
+}
+init();
 
 ////////////////////////////////////////////////////
-// 1. CARGAR PRODUCTOS ACTIVOS
+// CARGAR PRODUCTOS CORREGIDO PARA TU COLECCIÓN
 ////////////////////////////////////////////////////
 async function cargarProductos() {
+
   const q = query(collection(db, "productos"), where("activo", "==", true));
   const snap = await getDocs(q);
-  productosCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-}
-await cargarProductos();
 
+  productosCache = snap.docs.map(d => {
+    const data = d.data();
+    return {
+      id: d.id,
+      codigo: data.codigoBarra || d.id,
+      descripcion: data.concepto || "",
+      costo_sin_impuesto: Number(data.costoSinImpuesto || 0),
+      equivalentes: data.codigosEquivalentes || []
+    };
+  });
+
+  console.log("Productos cargados:", productosCache);
+}
 
 ////////////////////////////////////////////////////
-// 2. BUSCADOR: DETECTA CÓDIGO O DESCRIPCIÓN
+// BUSCADOR
 ////////////////////////////////////////////////////
 buscador.addEventListener("input", () => {
   const t = buscador.value.trim().toLowerCase();
   if (!t) return;
 
-  // Exacto por código
-  let p = productosCache.find(x => x.codigo?.toLowerCase() === t);
+  let p = productosCache.find(x =>
+  x.codigo?.toLowerCase() === t ||
+  x.equivalentes.map(e => e.toLowerCase()).includes(t)
+);
 
-  // Si no coincide exacto, busca por descripción
+
   if (!p) {
     const lista = productosCache.filter(x =>
       x.descripcion?.toLowerCase().includes(t)
@@ -67,16 +81,15 @@ buscador.addEventListener("input", () => {
 
 
 ////////////////////////////////////////////////////
-// 3. AGREGAR PRODUCTO A LA TABLA
+// AGREGAR A LA TABLA
 ////////////////////////////////////////////////////
 function agregarProductoATabla(p) {
-  // Evitar duplicados
   if (tabla.find(x => x.codigo === p.codigo)) return;
 
   tabla.push({
     codigo: p.codigo,
     descripcion: p.descripcion,
-    costo: Number(p.costo_sin_impuesto || 0),
+    costo: p.costo_sin_impuesto,
     cantidad: 0,
     linea: ""
   });
@@ -112,9 +125,8 @@ window.eliminar = function (i) {
   renderTabla();
 };
 
-
 ////////////////////////////////////////////////////
-// 4. GUARDAR EN FIRESTORE
+// GUARDAR ENTRADA
 ////////////////////////////////////////////////////
 btnGuardar.addEventListener("click", async () => {
   if (tabla.length === 0) {
