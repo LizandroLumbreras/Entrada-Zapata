@@ -5,215 +5,416 @@
 <title>Entradas – Almacén Zapata</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import {
-  getFirestore, collection, query, where, getDocs,
-  addDoc, serverTimestamp
-} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyCK5nb6u2CGRJ8AB1aPlRn54b97bdeAFeM",
-  authDomain: "inventariopv-643f1.firebaseapp.com",
-  projectId: "inventariopv-643f1",
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-
-// ELEMENTOS
-const buscador = document.getElementById("buscador");
-const tbody = document.getElementById("tbody");
-const btnGuardar = document.getElementById("guardarEntrada");
-
-let productosCache = [];
-let tabla = [];
-
-async function init() {
-  await cargarProductos();
-}
-init();
-
-////////////////////////////////////////////////////
-// CARGAR PRODUCTOS CORREGIDO PARA TU COLECCIÓN
-////////////////////////////////////////////////////
-async function cargarProductos() {
-
-  const q = query(collection(db, "productos"), where("activo", "==", true));
-  const snap = await getDocs(q);
-
-  productosCache = snap.docs.map(d => {
-    const data = d.data();
-    return {
-      id: d.id,
-      codigo: data.codigoBarra || d.id,
-      descripcion: data.concepto || "",
-      costo_sin_impuesto: Number(data.costoSinImpuesto || 0),
-      equivalentes: data.codigosEquivalentes || []
-    };
-  });
-
-  console.log("Productos cargados:", productosCache);
-}
-
-////////////////////////////////////////////////////
-// BUSCADOR
-////////////////////////////////////////////////////
-buscador.addEventListener("input", () => {
-  const t = buscador.value.trim().toLowerCase();
-  if (!t) return;
-
-  let p = productosCache.find(x =>
-  x.codigo?.toLowerCase() === t ||
-  x.equivalentes.map(e => e.toLowerCase()).includes(t)
-);
-
-
-  if (!p) {
-    const lista = productosCache.filter(x =>
-      x.descripcion?.toLowerCase().includes(t)
-    );
-    if (lista.length === 1) p = lista[0];
-  }
-
-  if (p) agregarProductoATabla(p);
-});
-
-
-////////////////////////////////////////////////////
-// AGREGAR A LA TABLA
-////////////////////////////////////////////////////
-function agregarProductoATabla(p) {
-  if (tabla.find(x => x.codigo === p.codigo)) return;
-
-  tabla.push({
-    codigo: p.codigo,
-    descripcion: p.descripcion,
-    costo: p.costo_sin_impuesto,
-    cantidad: 0,
-    linea: ""
-  });
-
-  renderTabla();
-  buscador.value = "";
-}
-
-function renderTabla() {
-  tbody.innerHTML = "";
-
-  tabla.forEach((item, index) => {
-    const tr = document.createElement("tr");
-
-    tr.innerHTML = `
-      <td>${item.codigo}</td>
-      <td>${item.descripcion}</td>
-      <td><input type="number" min="0" value="${item.cantidad}" 
-           onchange="tabla[${index}].cantidad = Number(this.value)">
-      </td>
-      <td><input type="text" value="${item.linea}" 
-           onchange="tabla[${index}].linea = this.value">
-      </td>
-      <td>${item.costo.toFixed(2)}</td>
-      <td><button onclick="eliminar(${index})">X</button></td>
-    `;
-    tbody.appendChild(tr);
-  });
-}
-
-window.eliminar = function (i) {
-  tabla.splice(i, 1);
-  renderTabla();
-};
-
-////////////////////////////////////////////////////
-// GUARDAR ENTRADA
-////////////////////////////////////////////////////
-btnGuardar.addEventListener("click", async () => {
-  if (tabla.length === 0) {
-    alert("No hay productos para guardar");
-    return;
-  }
-
-  const entrada = {
-    fecha: serverTimestamp(),
-    productos: tabla.map(x => ({
-      codigo: x.codigo,
-      descripcion: x.descripcion,
-      cantidad: x.cantidad,
-      linea: x.linea,
-      costo_sin_impuesto: x.costo
-    }))
-  };
-
-  await addDoc(
-    collection(db, "almacenes/almacen_zapata/entradas"),
-    entrada
-  );
-
-  tabla = [];
-  renderTabla();
-  alert("Entrada registrada correctamente");
-});
-</script>
-
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/html5-qrcode"></script>
 
 <style>
-body {
-  font-family: Arial;
-  padding: 20px;
-  background: #f4f4f4;
+body{
+  font-family:'Poppins',sans-serif;
+  background:linear-gradient(to right,#00416A,#E4E5E6);
+  color:white; padding:16px; margin:0;
 }
-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: white;
-  margin-top: 20px;
+h2{ text-align:center; margin-bottom:10px; }
+input,button{ font-family:inherit; padding:10px; font-size:16px; border-radius:10px; border:none }
+input[type="text"],input[type="number"]{ width:100%; }
+button{ cursor:pointer; background:#0c6cbd; color:white; font-weight:700 }
+button:active{ filter:brightness(.9) }
+
+/* Tabla */
+.contenedor-tabla{ background:white; border-radius:12px; overflow:auto; margin-top:18px }
+table{ width:100%; border-collapse:collapse }
+th,td{ padding:10px; border-bottom:1px solid #ddd; color:#111; text-align:center }
+th{ background:#00416A; color:white }
+
+/* Modal buscador */
+.modal{ position:fixed; inset:0; background:rgba(0,0,0,.45);
+  display:none; align-items:center; justify-content:center; z-index:40 }
+.modal .box{
+  width:min(900px,96vw); background:#fff; color:#111;
+  padding:14px; border-radius:12px; max-height:90vh; overflow:auto;
 }
-th, td {
-  padding: 10px;
-  border: 1px solid #ccc;
-  text-align: center;
+.producto-card{
+  border:2px solid #333; border-radius:10px; padding:10px;
+  background:#fff; box-shadow:2px 2px 6px rgba(0,0,0,0.08)
 }
-th {
-  background: #00416A;
-  color: white;
+.btn-ok{background:#1e8e3e;color:white;font-weight:700;border-radius:10px;padding:6px 10px}
+
+.icon-btn{
+  padding:0; width:50px; height:50px; border-radius:12px;
+  background:#e8edf6; color:#0c2a5e; font-size:24px; display:grid; place-items:center;
 }
-input[type="number"], input[type="text"] {
-  width: 100px;
+.toolbar{ display:flex; gap:10px; margin-bottom:14px }
+
+.preview{
+  background:#ffffffdd; color:#111; padding:12px;
+  border-radius:12px; border:2px dashed #0c6cbd; margin-top:14px;
 }
-button {
-  padding: 6px 12px;
-  background: #00416A;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
+.pill{
+  background:#e8edf6; padding:6px 12px; border-radius:999px;
+  font-weight:600; display:inline-block; margin:4px 4px 0 0;
 }
 </style>
-
 </head>
 <body>
 
 <h2>Entradas – Almacén Zapata</h2>
 
-<input id="buscador" placeholder="Buscar producto por código o descripción"
-       style="width:100%; padding:12px; font-size:16px;">
+<!-- Toolbar -->
+<div class="toolbar">
+  <button class="icon-btn" id="btnBuscar" title="Buscar">🔎</button>
+  <button class="icon-btn" id="btnScan" title="Escanear">📷</button>
+</div>
 
+<!-- Captura -->
+<input id="codigo" type="text" placeholder="Escribe o escanea el código...">
+<input id="cantidad" type="number" step="0.001" min="0.001" placeholder="Cantidad">
+<input id="linea" type="text" placeholder="Línea detectada (editable)">
+<button id="btnAgregar">Agregar a tabla</button>
+
+<!-- Previsualización -->
+<div id="preview" class="preview" style="display:none">
+  <div class="pill" id="pDesc"></div>
+  <div class="pill" id="pCodigo"></div>
+  <div id="pAviso" style="margin-top:6px;font-size:14px;color:#444"></div>
+</div>
+
+<!-- Escáner -->
+<div id="lector" style="display:none; background:#fff; padding:10px; border-radius:10px; width:300px"></div>
+
+<!-- Tabla final -->
+<div class="contenedor-tabla">
 <table>
-<thead>
-<tr>
-  <th>Código</th>
-  <th>Descripción</th>
-  <th>Cantidad</th>
-  <th>Línea</th>
-  <th>Costo sin IVA</th>
-  <th>Eliminar</th>
-</tr>
-</thead>
-<tbody id="tbody"></tbody>
+  <thead>
+    <tr>
+      <th>Código</th>
+      <th>Descripción</th>
+      <th>Cantidad</th>
+      <th>Línea</th>
+      <th>Costo</th>
+      <th>Eliminar</th>
+    </tr>
+  </thead>
+  <tbody id="tbody"></tbody>
 </table>
+</div>
 
-<button id="guardarEntrada">Guardar Entrada</button>
+<button id="btnGuardar" style="margin-top:16px;width:100%">Guardar Entrada</button>
+
+<!-- Modal Buscador -->
+<div class="modal" id="modal">
+  <div class="box">
+    <header style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <strong>Buscador de artículos</strong>
+      <button class="icon-btn" id="cerrarModal">✖</button>
+    </header>
+
+    <input type="text" id="buscador" placeholder="Escribe nombre o código...">
+    <div style="margin:6px 0">
+      <progress id="barraProgreso" value="0" max="100" style="width:180px"></progress>
+      <span id="estado"></span>
+    </div>
+
+    <div id="resultados" style="display:grid;grid-template-columns:1fr 1fr;gap:10px"></div>
+
+    <div style="margin-top:10px;display:flex;justify-content:space-between">
+      <button id="prev" disabled>⬅ Anterior</button>
+      <span id="contador"></span>
+      <button id="next" disabled>Siguiente ➡</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getFirestore, collection, addDoc, getDocs, getDoc, updateDoc,
+  query, where, doc, limit
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey:"AIzaSyCK5nb6u2CGRJ8AB1aPlRn54b97bdeAFeM",
+  authDomain:"inventariopv-643f1.firebaseapp.com",
+  projectId:"inventariopv-643f1"
+};
+
+const app = initializeApp(firebaseConfig);
+const db  = getFirestore(app);
+
+const $ = id => document.getElementById(id);
+
+/* ---------------------------- DETECCIÓN DE LÍNEA ---------------------------- */
+const LINEAS = [
+ "REYMA","CONVERMEX","BIOPLAST","JAGUAR",
+ "BOLSAS PLASTICAS","PLASTIENVASE","DESECHABLE","OTROS",
+ "BIG COLA","COCA COLA","PEPSI"
+];
+
+function detectarLinea(descripcion){
+  const desc = String(descripcion).toUpperCase();
+  for(const l of LINEAS){
+    if(desc.includes(l)) return l;
+  }
+  return "OTROS";
+}
+
+/* ---------------------------- ESTADO ---------------------------- */
+let productoPreview=null;
+let tabla=[];
+
+/* ---------------------------- PREVISUALIZAR ---------------------------- */
+async function previsualizar(){
+  const code = $("codigo").value.trim();
+  if(!code){ $("preview").style.display="none"; return; }
+
+  const p = await resolverProducto(code);
+
+  productoPreview = {
+    codigo: p.codigo,
+    descripcion: p.descripcion,
+    costo: p.costo
+  };
+
+  $("pDesc").textContent = p.descripcion;
+  $("pCodigo").textContent = "Código: " + p.codigo;
+  $("pAviso").textContent = "Previsualización lista.";
+
+  $("linea").value = detectarLinea(p.descripcion);
+
+  $("preview").style.display="block";
+}
+
+/* ---------------------------- RESOLVER PRODUCTO ---------------------------- */
+async function resolverProducto(code){
+  const c = String(code).trim();
+
+  const s1 = await getDocs(query(collection(db,"productos"),
+    where("activo","==",true),
+    where("codigoBarra","==",c),
+    limit(1)
+  ));
+  if(!s1.empty){
+    const d=s1.docs[0];
+    return {
+      codigo:d.id,
+      descripcion:d.data().concepto || "",
+      costo:Number(d.data().costoSinImpuesto || 0)
+    };
+  }
+
+  const s2 = await getDocs(query(collection(db,"productos"),
+    where("activo","==",true),
+    where("codigosEquivalentes","array-contains",c),
+    limit(1)
+  ));
+  if(!s2.empty){
+    const d=s2.docs[0];
+    return {
+      codigo:d.id,
+      descripcion:d.data().concepto || "",
+      costo:Number(d.data().costoSinImpuesto || 0)
+    };
+  }
+
+  const byId = await getDoc(doc(db,"productos",c));
+  if(byId.exists()){
+    const d=byId.data();
+    return {
+      codigo:c,
+      descripcion:d.concepto || "",
+      costo:Number(d.costoSinImpuesto || 0)
+    };
+  }
+
+  throw "Producto no encontrado";
+}
+
+/* ---------------------------- AGREGAR A TABLA ---------------------------- */
+$("btnAgregar").addEventListener("click",()=>{
+  if(!productoPreview) return alert("Primero previsualiza un producto");
+  const cantidad = Number($("cantidad").value);
+  if(!cantidad || cantidad<=0) return alert("Cantidad inválida");
+
+  const linea = $("linea").value.trim() || "OTROS";
+
+  tabla.push({
+    codigo: productoPreview.codigo,
+    descripcion: productoPreview.descripcion,
+    cantidad,
+    linea,
+    costo: productoPreview.costo
+  });
+
+  renderTabla();
+
+  $("codigo").value="";
+  $("cantidad").value="";
+  $("preview").style.display="none";
+});
+
+/* ---------------------------- RENDER TABLA ---------------------------- */
+function renderTabla(){
+  const tbody = $("tbody");
+  tbody.innerHTML="";
+
+  tabla.forEach((item,idx)=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML=`
+      <td>${item.codigo}</td>
+      <td>${item.descripcion}</td>
+      <td><input type="number" min="0.001" step="0.001" value="${item.cantidad}"
+            onchange="tabla[${idx}].cantidad=Number(this.value)"></td>
+      <td><input type="text" value="${item.linea}"
+            onchange="tabla[${idx}].linea=this.value"></td>
+      <td>${item.costo.toFixed(2)}</td>
+      <td><button onclick="tabla.splice(${idx},1);renderTabla()">X</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+/* ---------------------------- GUARDAR ENTRADA ---------------------------- */
+$("btnGuardar").addEventListener("click", async ()=>{
+  if(tabla.length===0) return alert("No hay productos");
+
+  const entrada = {
+    fecha: new Date(),
+    productos: tabla.map(x=>({
+      codigo:x.codigo,
+      descripcion:x.descripcion,
+      cantidad:x.cantidad,
+      linea:x.linea,
+      costo_sin_impuesto:x.costo
+    }))
+  };
+
+  await addDoc(collection(db,"almacenes/almacen_zapata/entradas"), entrada);
+
+  tabla=[];
+  renderTabla();
+  alert("Entrada guardada");
+});
+
+/* ---------------------------- BUSCADOR MODAL ---------------------------- */
+let resultados=[], pagina=0; const porPagina=20;
+
+$("btnBuscar").addEventListener("click",()=>{
+  $("modal").style.display="flex";
+  $("buscador").value="";
+  $("resultados").innerHTML="";
+  $("contador").textContent="";
+  $("barraProgreso").value=0;
+});
+
+$("cerrarModal").addEventListener("click",()=> $("modal").style.display="none");
+
+$("buscador").addEventListener("input",()=>{
+  const t=$("buscador").value.trim();
+  if(!t){ $("resultados").innerHTML=""; return; }
+  buscarProductos(t);
+});
+
+async function buscarProductos(t){
+  resultados=[];
+  $("resultados").innerHTML="⏳ Buscando...";
+  $("barraProgreso").value=20;
+
+  if(/^\d+$/.test(t)){
+    let s1 = await getDocs(query(collection(db,"productos"),
+      where("activo","==",true),
+      where("codigoBarra","==",t), limit(1)
+    ));
+    if(!s1.empty){
+      resultados=s1.docs.map(d=>({id:d.id,...d.data()}));
+    }else{
+      let s2=await getDocs(query(collection(db,"productos"),
+        where("activo","==",true),
+        where("codigosEquivalentes","array-contains",t),
+        limit(1)
+      ));
+      if(!s2.empty) resultados=s2.docs.map(d=>({id:d.id,...d.data()}));
+    }
+    $("barraProgreso").value=100;
+    return mostrarPagina(0);
+  }
+
+  $("barraProgreso").value=40;
+  const snap=await getDocs(query(collection(db,"productos"),where("activo","==",true)));
+  resultados = snap.docs
+    .map(x=>({id:x.id,...x.data()}))
+    .filter(p => (p.concepto||"").toLowerCase().includes(t.toLowerCase()));
+
+  $("barraProgreso").value=100;
+
+  mostrarPagina(0);
+}
+
+$("prev").addEventListener("click",()=>mostrarPagina(pagina-1));
+$("next").addEventListener("click",()=>mostrarPagina(pagina+1));
+
+function mostrarPagina(n){
+  pagina=n;
+  const ini = pagina*porPagina;
+  const fin = ini+porPagina;
+
+  const lista = resultados.slice(ini,fin);
+  $("resultados").innerHTML="";
+
+  lista.forEach(p=>{
+    const div=document.createElement("div");
+    div.className="producto-card";
+    div.innerHTML=`
+      <b>${p.concepto||"SIN DESC"}</b><br>
+      Código: ${p.codigoBarra || p.id}
+      <div style="margin-top:6px">
+        <button class="btn-ok">Usar</button>
+      </div>
+    `;
+    div.querySelector(".btn-ok").onclick=()=>{
+      $("codigo").value = p.codigoBarra || p.id;
+      $("modal").style.display="none";
+      previsualizar();
+    };
+    $("resultados").appendChild(div);
+  });
+
+  $("contador").textContent = 
+    `Página ${pagina+1} de ${Math.max(1,Math.ceil(resultados.length/porPagina))}`;
+
+  $("prev").disabled = pagina===0;
+  $("next").disabled = fin>=resultados.length;
+}
+
+/* ---------------------------- ESCÁNER ---------------------------- */
+let lector=null;
+$("btnScan").addEventListener("click",startStopCam);
+
+async function startStopCam(){
+  if(lector){ try{ await lector.stop(); }catch{} lector=null; $("lector").style.display="none"; return; }
+
+  $("lector").style.display="block";
+  lector = new Html5Qrcode("lector");
+
+  try{
+    await lector.start({facingMode:"environment"},{fps:10,qrbox:250},
+      async codigo=>{
+        try{ await lector.stop(); }catch{} lector=null;
+        $("lector").style.display="none";
+        $("codigo").value=codigo;
+        await previsualizar();
+        $("cantidad").focus();
+      }
+    );
+  }catch{
+    alert("No se pudo abrir la cámara");
+  }
+}
+
+/* Previsualización automática */
+$("codigo").addEventListener("blur",previsualizar);
+$("codigo").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){ e.preventDefault(); previsualizar(); $("cantidad").focus(); }
+});
+</script>
 
 </body>
 </html>
