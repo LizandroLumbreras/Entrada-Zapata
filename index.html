@@ -187,8 +187,8 @@ async function previsualizar(){
 async function resolverProducto(code){
   const c = String(code).trim();
 
+  // Buscar por codigoBarra
   const s1 = await getDocs(query(collection(db,"productos"),
-    where("activo","==",true),
     where("codigoBarra","==",c),
     limit(1)
   ));
@@ -201,8 +201,8 @@ async function resolverProducto(code){
     };
   }
 
+  // Buscar por equivalentes
   const s2 = await getDocs(query(collection(db,"productos"),
-    where("activo","==",true),
     where("codigosEquivalentes","array-contains",c),
     limit(1)
   ));
@@ -215,6 +215,7 @@ async function resolverProducto(code){
     };
   }
 
+  // Buscar por ID directo
   const byId = await getDoc(doc(db,"productos",c));
   if(byId.exists()){
     const d=byId.data();
@@ -318,32 +319,62 @@ async function buscarProductos(t){
   $("resultados").innerHTML="⏳ Buscando...";
   $("barraProgreso").value=20;
 
-  if(/^\d+$/.test(t)){
+  const esNumero = /^\d+$/.test(t);
+
+  /* --------------------------------------------------
+      1) BÚSQUEDA POR CÓDIGO EXACTO
+  -------------------------------------------------- */
+  if(esNumero){
     let s1 = await getDocs(query(collection(db,"productos"),
-      where("activo","==",true),
       where("codigoBarra","==",t), limit(1)
     ));
     if(!s1.empty){
-      resultados=s1.docs.map(d=>({id:d.id,...d.data()}));
+      resultados = s1.docs.map(d=>({id:d.id,...d.data()}));
     }else{
-      let s2=await getDocs(query(collection(db,"productos"),
-        where("activo","==",true),
-        where("codigosEquivalentes","array-contains",t),
-        limit(1)
+      let s2 = await getDocs(query(collection(db,"productos"),
+        where("codigosEquivalentes","array-contains",t), limit(1)
       ));
-      if(!s2.empty) resultados=s2.docs.map(d=>({id:d.id,...d.data()}));
+      if(!s2.empty){
+        resultados = s2.docs.map(d=>({id:d.id,...d.data()}));
+      }
     }
-    $("barraProgreso").value=100;
-    return mostrarPagina(0);
   }
 
-  $("barraProgreso").value=40;
-  const snap=await getDocs(query(collection(db,"productos"),where("activo","==",true)));
-  resultados = snap.docs
-    .map(x=>({id:x.id,...x.data()}))
-    .filter(p => (p.concepto||"").toLowerCase().includes(t.toLowerCase()));
+  /* --------------------------------------------------
+      2) BÚSQUEDA PARCIAL DE CÓDIGOS
+         EJEMPLO: "35" → 355, 358, 359, etc.
+  -------------------------------------------------- */
+  $("barraProgreso").value = 40;
 
-  $("barraProgreso").value=100;
+  const snap = await getDocs(collection(db,"productos"));
+  const todos = snap.docs.map(x=>({id:x.id, ...x.data()}));
+
+  if(esNumero){
+    const parciales = todos.filter(p=>{
+      const cod = String(p.codigoBarra || p.id || "").toLowerCase();
+      return cod.includes(t.toLowerCase());
+    });
+    resultados = [...resultados, ...parciales];
+  }
+
+  /* --------------------------------------------------
+      3) BÚSQUEDA POR NOMBRE (concepto)
+  -------------------------------------------------- */
+  const text = t.toLowerCase();
+  const nombreMatch = todos.filter(p =>
+    (p.concepto || "").toLowerCase().includes(text)
+  );
+
+  resultados = [...resultados, ...nombreMatch];
+
+  /* --------------------------------------------------
+      4) LIMPIAR DUPLICADOS
+  -------------------------------------------------- */
+  const mapa = {};
+  resultados.forEach(p => mapa[p.id] = p);
+  resultados = Object.values(mapa);
+
+  $("barraProgreso").value = 100;
 
   mostrarPagina(0);
 }
